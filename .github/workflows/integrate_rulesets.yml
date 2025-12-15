@@ -1,0 +1,58 @@
+name: Update Rulesets on Docker Wazuh via Volumes
+on:
+  push:
+    branches: [ "main" ]
+    paths: ["rules/*.xml", "decoders/*.xml"]
+  workflow_dispatch:
+
+jobs:
+  update-docker-wazuh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Update Rules via Docker Volumes
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            # First, check if we're using volumes
+            echo "Checking Docker volume setup..."
+            docker inspect multi-node-wazuh.master-1 --format='{{json .Mounts}}' | jq .
+            
+            # Find the actual volume path on host
+            VOLUME_PATH=$(docker inspect multi-node-wazuh.master-1 --format='{{range .Mounts}}{{if eq .Destination "/var/ossec/etc"}}{{.Source}}{{end}}{{end}}')
+            
+            if [ -z "$VOLUME_PATH" ]; then
+              echo "❌ No volume found for /var/ossec/etc"
+              echo "Using direct container copy method..."
+              
+              # Clone repo into container
+              docker exec multi-node-wazuh.master-1 bash -c "
+                cd /tmp && \
+                git clone https://github.com/your-org/your-wazuh-repo.git --branch main --single-branch && \
+                cp -r your-wazuh-repo/rules/* /var/ossec/etc/rules/ && \
+                cp -r your-wazuh-repo/decoders/* /var/ossec/etc/decoders/ && \
+                chown -R wazuh:wazuh /var/ossec/etc/rules /var/ossec/etc/decoders && \
+                rm -rf /tmp/your-wazuh-repo
+              "
+            else
+              echo "✅ Found volume at: $VOLUME_PATH"
+              
+              # Clone directly to volume
+              cd $VOLUME_PATH
+              git pull origin main || git clone https://github.com/your-org/your-wazuh-repo.git .
+              chown -R 1000:1000 rules decoders  # wazuh user typically has UID 1000
+            fi
+            
+            # Restart all wazuh-manager containers
+            for container in $(docker ps --filter "name=wazuh-manager" --format "{{.Names}}"); do
+              echo "Restarting $container..."
+              docker exec $container bash -c "wazuh-control restart"
+            done
+            
+            echo "✅ All Wazuh managers updated and restarted"
