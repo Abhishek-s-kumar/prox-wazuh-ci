@@ -1,41 +1,83 @@
-<!-- Local rules -->
-
-<!-- Modify it at your will. -->
-<!-- Copyright (C) 2015, Wazuh Inc. -->
-
-<!-- Example -->
-<group name="local,syslog,sshd,">
-
-  <!--
-  Dec 10 01:02:02 host sshd[1234]: Failed none for root from 1.1.1.1 port 1066 ssh2
-  -->
-  <rule id="100001" level="5">
-    <if_sid>5716</if_sid>
-    <srcip>1.1.1.1</srcip>
-    <description>sshd: authentication failed from IP 1.1.1.1.</description>
-    <group>authentication_failed,pci_dss_10.2.4,pci_dss_10.2.5,</group>
-  </rule>
-
-
-  
-  <!-- Sigma r2025-10-01 suppressions -->
-  <rule id="100600" level="0">
-    <if_sid>100100</if_sid>
-    <field name="win.eventdata.parentImage" type="pcre2">VeeamAgent\.exe$</field>
-    <description>Suppress: Veeam legitimate PowerShell</description>
-  </rule>
-
-  <rule id="100601" level="0">
-    <if_sid>100202</if_sid>
-    <field name="win.eventdata.targetFilename" type="pcre2">C:\\Users\\.*\\Libraries\\</field>
-    <description>Suppress: user-created library shortcuts</description>
-  </rule>
-  
-  <rule id="100602" level="0">
-    <if_sid>100201</if_sid>
-    <field name="win.eventdata.user">DOMAIN\sp_admin</field>
-    <time>02:00-04:00</time>
-    <description>Suppress: scheduled SharePoint maintenance</description>
-  </rule>
- 
-</group>    <!-- re-close the group -->
+<!--
+  Sigma r2025-10-01  →  Wazuh
+  IDs 100100-100599  (see ID_REGISTRY.txt)
+  Generated: 2025-10-13T08:13:16-04:00
+-->
+<group name="sigma,windows,attack,">
+<rule id="100401" level="8">
+    <if_sid>61608</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i)\.(pdf|doc|docx|xls|xlsx|jpg|png|svg)\.(exe|bat|cmd|vbs|js|hta)</field>
+    <description>File with suspicious double extension detected</description>
+    <mitre><id>T1036.007</id></mitre>
+    <group>attack.defense_evasion,sigma,</group>
+  </rule><rule id="100400" level="12">
+    <if_sid>61608</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">\.library-ms$</field>
+    <description>Suspicious .library-ms file – potential CVE-2025-24054 exploit</description>
+    <mitre><id>T1204.002</id></mitre>
+    <group>attack.execution,cve.2025.24054,sigma,</group>
+  </rule><rule id="100202" level="8">
+    <if_sid>61608</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i)\\AppData\\Local\\Microsoft\\Windows\\INetCache\\Content\.Outlook\\.*\.(exe|dll|bat|vbs|js|hta|scr)</field>
+    <description>Suspicious executable file in Outlook temp directory</description>
+    <mitre><id>T1566.001</id></mitre>
+    <group>attack.initial_access,sigma,phishing,</group>
+  </rule><rule id="100500" level="8">
+    <if_sid>61606</if_sid>
+    <field name="win.eventdata.destinationPort" type="pcre2">^(4444|5555|6666|7777|8888|9999)$</field>
+    <description>Network connection to commonly abused port</description>
+    <mitre><id>T1071</id></mitre>
+    <group>attack.command_and_control,sigma,</group>
+  </rule><rule id="100200" level="15">
+    <if_sid>61600,61603</if_sid>
+    <field name="win.eventdata.parentImage" type="pcre2">(?i)CrushFTP\.exe$</field>
+    <field name="win.eventdata.image" type="pcre2">(?i)(cmd\.exe|powershell\.exe|wscript\.exe|cscript\.exe)</field>
+    <description>CrushFTP RCE CVE-2025-54309 – suspicious child process</description>
+    <mitre><id>T1190</id></mitre>
+    <group>attack.initial_access,cve.2025.54309,sigma,critical,</group>
+  </rule><rule id="100201" level="15">
+    <if_sid>61608</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i)C:\\Program Files\\Common Files\\Microsoft Shared\\Web Server Extensions\\.*\\LAYOUTS\\.*\.(aspx|asmx|ashx)$</field>
+    <description>SharePoint ToolShell CVE-2025-53770 – potential webshell</description>
+    <mitre><id>T1505.003</id><id>T1190</id></mitre>
+    <group>attack.persistence,attack.initial_access,cve.2025.53770,sigma,critical,</group>
+  </rule><rule id="100500" level="12">
+    <if_sid>61600,61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(nltest|net\s+view|net\s+group|net\s+user|whoami|quser|qwinsta)</field>
+    <field name="win.eventdata.parentImage" type="pcre2">(?i)(wscript|cscript|powershell|mshta)</field>
+    <description>TrickBot-like reconnaissance activity</description>
+    <mitre><id>T1087</id><id>T1018</id><id>T1059</id></mitre>
+    <group>attack.discovery,attack.execution,sigma,</group>
+  </rule><rule id="100101" level="10">
+    <if_sid>61600,61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)powershell.*-encodedcommand</field>
+    <description>PowerShell execution with encoded command</description>
+    <mitre><id>T1059.001</id><id>T1027</id></mitre>
+    <group>attack.execution,attack.defense_evasion,sigma,</group>
+  </rule><rule id="100102" level="10">
+    <if_sid>61600,61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)powershell.*(bypass|unrestricted)</field>
+    <description>PowerShell execution-policy bypass attempt</description>
+    <mitre><id>T1059.001</id><id>T1562.001</id></mitre>
+    <group>attack.execution,attack.defense_evasion,sigma,</group>
+  </rule><rule id="100300" level="12">
+    <if_sid>61600,61603</if_sid>
+    <field name="win.eventdata.parentImage" type="pcre2">(?i)(disp\+work\.exe|jstart\.exe|jlaunch\.exe)</field>
+    <field name="win.eventdata.image" type="pcre2">(?i)(cmd\.exe|powershell\.exe|wscript\.exe|cscript\.exe|certutil\.exe)</field>
+    <description>Suspicious child process spawned by SAP NetWeaver</description>
+    <mitre><id>T1190</id></mitre>
+    <group>attack.initial_access,sigma,sap,</group>
+  </rule><rule id="100100" level="10">
+    <if_sid>61600,61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(invoke-webrequest|invoke-restmethod|downloadstring|downloadfile)</field>
+    <description>Suspicious PowerShell download pattern</description>
+    <mitre><id>T1059.001</id><id>T1105</id></mitre>
+    <group>attack.execution,attack.command_and_control,sigma,</group>
+  </rule><rule id="100450" level="12">
+    <if_sid>61610</if_sid>
+    <field name="win.eventdata.targetObject" type="pcre2">(?i)HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\DisableAntiSpyware</field>
+    <field name="win.eventdata.details">^1$</field>
+    <description>Windows Defender disabled via registry modification</description>
+    <mitre><id>T1562.001</id></mitre>
+    <group>attack.defense_evasion,sigma,</group>
+  </rule></group>
