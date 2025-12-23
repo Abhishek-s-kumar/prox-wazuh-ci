@@ -1,58 +1,152 @@
-name: Update Rulesets on Docker Wazuh via Volumes
+name: Update Rulesets on SIEM
 on:
   push:
     branches: [ "main" ]
-    paths: ["rules/*.xml", "decoders/*.xml"]
+    paths: ["rules/**", "decoders/**"]
   workflow_dispatch:
 
 jobs:
-  update-docker-wazuh:
-    runs-on: ubuntu-latest
+  DaaC:
+    runs-on: self-hosted
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
         
-      - name: Update Rules via Docker Volumes
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.PORT }}
-          script: |
-            # First, check if we're using volumes
-            echo "Checking Docker volume setup..."
-            docker inspect multi-node-wazuh.master-1 --format='{{json .Mounts}}' | jq .
-            
-            # Find the actual volume path on host
-            VOLUME_PATH=$(docker inspect multi-node-wazuh.master-1 --format='{{range .Mounts}}{{if eq .Destination "/var/ossec/etc"}}{{.Source}}{{end}}{{end}}')
-            
-            if [ -z "$VOLUME_PATH" ]; then
-              echo "❌ No volume found for /var/ossec/etc"
-              echo "Using direct container copy method..."
-              
-              # Clone repo into container
-              docker exec multi-node-wazuh.master-1 bash -c "
-                cd /tmp && \
-                git clone https://github.com/your-org/your-wazuh-repo.git --branch main --single-branch && \
-                cp -r your-wazuh-repo/rules/* /var/ossec/etc/rules/ && \
-                cp -r your-wazuh-repo/decoders/* /var/ossec/etc/decoders/ && \
-                chown -R wazuh:wazuh /var/ossec/etc/rules /var/ossec/etc/decoders && \
-                rm -rf /tmp/your-wazuh-repo
-              "
+      - name: Check Wazuh installation
+        id: check_wazuh
+        run: |
+          if [ -d "/var/ossec" ]; then
+            echo "Wazuh found at /var/ossec"
+            echo "WAZUH_EXISTS=true" >> $GITHUB_OUTPUT
+          else
+            echo "Wazuh not found on runner"
+            echo "WAZUH_EXISTS=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create backup
+        run: |
+          sudo mkdir -p /backup/
+          if [ -d "/var/ossec/etc/rules" ]; then
+            sudo cp -r /var/ossec/etc/rules /backup/wazuh-rules/
+            echo "✓ Rules backed up"
+          else
+            sudo mkdir -p /backup/wazuh-rules
+            echo "⚠ No existing rules to backup"
+          fi
+          
+          if [ -d "/var/ossec/etc/decoders" ]; then
+            sudo cp -r /var/ossec/etc/decoders /backup/wazuh-decoders/
+            echo "✓ Decoders backed up"
+          else
+            sudo mkdir -p /backup/wazuh-decoders
+            echo "⚠ No existing decoders to backup"
+          fi
+
+      - name: Performance baseline
+        run: |
+          if [ -f "scripts/performance_monitor.py" ]; then
+            python scripts/performance_monitor.py --action baseline
+          else
+            echo "Skipping performance baseline - script not found"
+          fi
+        continue-on-error: true
+
+      - name: Copy new rules and decoders
+        run: |
+          sudo mkdir -p /var/ossec/etc/rules /var/ossec/etc/decoders
+          
+          # Copy rules if they exist
+          if [ -d "rules" ] && [ "$(ls -A rules/*.xml 2>/dev/null)" ]; then
+            sudo cp rules/*.xml /var/ossec/etc/rules/
+            echo "Copied $(ls rules/*.xml | wc -l) rule files"
+          else
+            echo "No rule files to copy"
+          fi
+          
+          # Copy decoders if they exist
+          if [ -d "decoders" ] && [ "$(ls -A decoders/*.xml 2>/dev/null)" ]; then
+            sudo cp decoders/*.xml /var/ossec/etc/decoders/
+            echo "Copied $(ls decoders/*.xml | wc -l) decoder files"
+          else
+            echo "No decoder files to copy"
+          fi
+
+      - name: Set permissions
+        run: |
+          sudo chown -R wazuh:wazuh /var/ossec/etc/rules/ /var/ossec/etc/decoders/ 2>/dev/null || true
+          sudo chmod -R 660 /var/ossec/etc/rules/ /var/ossec/etc/decoders/ 2>/dev/null || true
+          echo "Permissions set"
+
+      - name: Restart Wazuh manager
+        if: steps.check_wazuh.outputs.WAZUH_EXISTS == 'true'
+        run: |
+          echo "Restarting Wazuh manager..."
+          sudo systemctl restart wazuh-manager
+          sleep 5
+          if sudo systemctl is-active wazuh-manager; then
+            echo "✓ Wazuh manager restarted successfully"
+          else
+            echo "✗ Wazuh manager failed to restart"
+            exit 1
+          fi
+
+      - name: Skip restart (Wazuh not installed)
+        if: steps.check_wazuh.outputs.WAZUH_EXISTS == 'false'
+        run: |
+          echo "⚠ Skipping Wazuh restart - not installed on runner"
+          echo "This is normal if runner is separate from Wazuh server"
+
+      - name: Performance comparison
+        run: |
+          if [ -f "scripts/kali_performance_monitor.py" ]; then
+            python3 scripts/kali_performance_monitor.py
+          else
+            echo "Skipping performance comparison - script not found"
+          fi
+        continue-on-error: true
+
+      - name: Show Wazuh status
+        if: steps.check_wazuh.outputs.WAZUH_EXISTS == 'true'
+        run: |
+          echo "Current Wazuh status:"
+          sudo systemctl status wazuh-manager --no-pager | head -20
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "=== ROLLBACK INITIATED ==="
+          echo "Failed at step: ${{ job.status }}"
+          
+          # Only rollback if Wazuh exists
+          if [ -d "/var/ossec" ]; then
+            echo "Rolling back rules..."
+            if [ -d "/backup/wazuh-rules" ] && [ "$(ls -A /backup/wazuh-rules 2>/dev/null)" ]; then
+              sudo rm -rf /var/ossec/etc/rules/*
+              sudo cp -r /backup/wazuh-rules/* /var/ossec/etc/rules/
+              echo "✓ Rules restored"
             else
-              echo "✅ Found volume at: $VOLUME_PATH"
-              
-              # Clone directly to volume
-              cd $VOLUME_PATH
-              git pull origin main || git clone https://github.com/your-org/your-wazuh-repo.git .
-              chown -R 1000:1000 rules decoders  # wazuh user typically has UID 1000
+              echo "⚠ No rules backup to restore"
             fi
             
-            # Restart all wazuh-manager containers
-            for container in $(docker ps --filter "name=wazuh-manager" --format "{{.Names}}"); do
-              echo "Restarting $container..."
-              docker exec $container bash -c "wazuh-control restart"
-            done
+            echo "Rolling back decoders..."
+            if [ -d "/backup/wazuh-decoders" ] && [ "$(ls -A /backup/wazuh-decoders 2>/dev/null)" ]; then
+              sudo rm -rf /var/ossec/etc/decoders/*
+              sudo cp -r /backup/wazuh-decoders/* /var/ossec/etc/decoders/
+              echo "✓ Decoders restored"
+            else
+              echo "⚠ No decoders backup to restore"
+            fi
             
-            echo "✅ All Wazuh managers updated and restarted"
+            # Restart if we restored anything
+            if [ -d "/backup/wazuh-rules" ] || [ -d "/backup/wazuh-decoders" ]; then
+              echo "Restarting Wazuh..."
+              sudo systemctl restart wazuh-manager
+              sleep 3
+              echo "Rollback completed"
+            fi
+          else
+            echo "⚠ Wazuh not installed on runner - nothing to rollback"
+          fi
+          
+          echo "=== ROLLBACK FINISHED ==="
+          exit 1
