@@ -1,0 +1,12 @@
+{
+    "repo_url": "https://github.com/YOUR_ORG/YOUR_REPO.git",
+    "branch": "main",
+    "auto_restart": true,
+    "create_backup": true,
+    "server_id": "server-hostname",
+    "repo_clone_path": "/opt/wazuh-rules",
+    "ssh_key_path": "/var/ossec/.ssh/id_rsa",
+    "backup_retention_days": 30,
+    "notify_on_success": false,
+    "notify_on_failure": true
+}
