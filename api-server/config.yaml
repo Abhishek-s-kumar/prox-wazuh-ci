@@ -1,0 +1,45 @@
+# API Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 8000
+  reload: false  # Set to true for development
+  workers: 4
+
+git:
+  repo_url: "https://github.com/YOUR_ORG/YOUR_REPO.git"
+  repo_path: "/opt/wazuh-rules-repo"
+  sync_interval: 300  # Sync every 5 minutes
+  branch: "main"
+
+auth:
+  secret_key: "your-secret-key-change-in-production"
+  token_expiry: 1440  # minutes (24 hours)
+  require_https: true
+
+database:
+  path: "/var/lib/wazuh-api/deployments.db"
+  backup_interval: 86400  # seconds (24 hours)
+
+rate_limit:
+  enabled: true
+  requests_per_minute: 60
+  burst_limit: 10
+
+logging:
+  level: "INFO"
+  file: "/var/log/wazuh-api/server.log"
+  max_size_mb: 100
+  backup_count: 5
+
+api_keys:
+  admin_keys:
+    - "admin-key-1-change-me"
+    - "admin-key-2-change-me"
+  auto_generate: true
+
+security:
+  cors_origins: 
+    - "https://your-domain.com"
+  ssl_enabled: false
+  ssl_cert: "/path/to/cert.pem"
+  ssl_key: "/path/to/key.pem"
