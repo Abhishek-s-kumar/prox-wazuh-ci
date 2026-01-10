@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<group name="custom,rules">
+  <!-- Custom test rules for Wazuh deployment testing -->
+  
+  <rule id="100001" level="3">
+    <if_sid>530</if_sid>
+    <field name="dvc">^192\.168\.|^10\.|^172\.</field>
+    <description>Custom: Internal network SSH connection detected</description>
+    <group>authentication_success,</group>
+  </rule>
+  
+  <rule id="100002" level="5">
+    <if_sid>5716</if_sid>
+    <regex>sudo:|su -|password changed|auth failure</regex>
+    <description>Custom: Privilege escalation or authentication event</description>
+    <group>syslog,authentication_failed,</group>
+  </rule>
+  
+  <rule id="100003" level="10">
+    <if_sid>530</if_sid>
+    <field name="srcip">!^192\.168\.|!^10\.|!^172\.</field>
+    <field name="dstip">^192\.168\.|^10\.|^172\.</field>
+    <description>Custom: External to internal SSH connection - POSSIBLE INTRUSION</description>
+    <group>authentication_success,attack,</group>
+  </rule>
+  
+  <rule id="100004" level="2">
+    <decoded_as>sshd</decoded_as>
+    <regex>Accepted publickey|Accepted password</regex>
+    <description>Custom: SSH authentication success (custom rule)</description>
+    <group>authentication_success,</group>
+  </rule>
+  
+  <rule id="100005" level="6">
+    <decoded_as>ossec</decoded_as>
+    <regex>integrity checksum changed|File checksum changed</regex>
+    <description>Custom: File integrity monitoring alert (custom rule)</description>
+    <group>ossec,syscheck,</group>
+  </rule>
+</group>
