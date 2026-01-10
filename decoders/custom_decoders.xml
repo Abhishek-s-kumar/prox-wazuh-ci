@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<decoder name="custom-ssh">
+  <parent>sshd</parent>
+  <prematch>^Accepted|^Failed|^Invalid</prematch>
+  <regex>^(\S+)\s+for\s+(\S+)\s+from\s+(\S+)\s+port</regex>
+  <order>status, user, srcip</order>
+</decoder>
+
+<decoder name="custom-sudo">
+  <parent>syslog</parent>
+  <prematch>sudo:|su:|pam_unix</prematch>
+  <regex>(\S+):\s+(\S+);\s+user=(\S+)</regex>
+  <order>program, message, user</order>
+</decoder>
